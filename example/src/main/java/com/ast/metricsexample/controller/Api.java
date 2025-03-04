@@ -1,7 +1,7 @@
 package com.ast.metricsexample.controller;
 
-import com.ast.metricsexample.metrics.MethodCallCounterMetric;
-import com.ast.metricsexample.metrics.MethodCallDurationMetric;
+import com.ast.metricsexample.metrics.CallCounter1;
+import com.ast.metricsexample.metrics.CallDuration1;
 import com.ast.metricsstarter.metrics.Metrics;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class Api {
 
     @GetMapping("/ping")
-    @Metrics({MethodCallCounterMetric.class, MethodCallDurationMetric.class})
+    @Metrics({CallCounter1.class, CallDuration1.class})
     public String ping() {
         return "pong";
     }
