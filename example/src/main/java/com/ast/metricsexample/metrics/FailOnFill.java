@@ -3,23 +3,25 @@ package com.ast.metricsexample.metrics;
 import com.ast.metricsstarter.metrics.MetricCollector;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.stereotype.Component;
 
-public class BusinessMetric implements MetricCollector {
+@Component
+public class FailOnFill implements MetricCollector {
 
     private final MeterRegistry registry;
 
-    public BusinessMetric(MeterRegistry registry) {
+    public FailOnFill(MeterRegistry registry) {
         this.registry = registry;
     }
 
     @Override
     public String getMetricName() {
-        return "business-1";
+        return "failed-on-fill";
     }
 
     @Override
     public String getDescription() {
-        return "Собираем бизнес-метрику";
+        return "Коллектор выбрасывает исключение на заполнении";
     }
 
     @Override
@@ -31,8 +33,7 @@ public class BusinessMetric implements MetricCollector {
 
     @Override
     public void fillMetric(Object targetResult) {
-        int length = ((String) targetResult).length();
-        Counter counter = registry.get(getMetricName()).counter();
-        counter.increment(length);
+        throw new RuntimeException(getMetricName() + " error");
+
     }
 }

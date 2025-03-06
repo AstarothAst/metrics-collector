@@ -9,4 +9,8 @@ public class MetricsStarterException extends RuntimeException {
     public MetricsStarterException(String error) {
         super(error);
     }
+
+    public MetricsStarterException() {
+        super();
+    }
 }

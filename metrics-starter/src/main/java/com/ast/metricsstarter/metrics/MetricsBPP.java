@@ -93,19 +93,21 @@ public class MetricsBPP implements BeanPostProcessor {
         Enhancer enhancer = new Enhancer();
         enhancer.setSuperclass(bean.getClass());
         enhancer.setCallback((MethodInterceptor) (obj, method, args, proxy) -> {
+            List<MetricCollector> metricCollectors = getMetricCollectors(bean, method);
+            Object targetResult;
+            boolean noErrorFlag = true;
 
-            List<MetricCollector> metricCollectors = fillMetricInformation(bean).get(method.getName()).stream()
-                    .map(metricCollectorsBeanProvider::createCollector)
-                    .toList();
+            try {
+                callRegisterMetric(metricCollectors);
+            } catch (MetricError e) {
+                noErrorFlag = false;
+            }
 
-            metricCollectors.forEach(MetricCollector::registerMetric);
-            Object targetResult = proxy.invokeSuper(obj, args);
+            targetResult = proxy.invokeSuper(obj, args);
 
-            metricCollectors.forEach(metricCollector -> {
-                metricCollector.fillMetric(targetResult);
-                metricCollectorsBeanProvider.destroyBean(metricCollector);
-            });
-
+            if (noErrorFlag) {
+                callFillMetric(metricCollectors, targetResult);
+            }
             return targetResult;
         });
         return enhancer.create();
@@ -113,20 +115,21 @@ public class MetricsBPP implements BeanPostProcessor {
 
     private Object createDynamicProxy(Object bean, String beanName) {
         InvocationHandler handler = (proxy, method, args) -> {
+            List<MetricCollector> metricCollectors = getMetricCollectors(bean, method);
+            Object targetResult;
+            boolean noErrorFlag = true;
 
-            List<MetricCollector> metricCollectors = fillMetricInformation(bean).get(method.getName()).stream()
-                    .map(metricCollectorsBeanProvider::createCollector)
-                    .toList();
+            try {
+                callRegisterMetric(metricCollectors);
+            } catch (MetricError e) {
+                noErrorFlag = false;
+            }
 
-            metricCollectors.forEach(MetricCollector::registerMetric);
+            targetResult = method.invoke(bean, args);
 
-            Object targetResult = method.invoke(bean, args);
-
-            metricCollectors.forEach(metricCollector -> {
-                metricCollector.fillMetric(targetResult);
-                metricCollectorsBeanProvider.destroyBean(metricCollector);
-            });
-
+            if (noErrorFlag) {
+                callFillMetric(metricCollectors, targetResult);
+            }
             return targetResult;
         };
 
@@ -141,6 +144,32 @@ public class MetricsBPP implements BeanPostProcessor {
             return beanOriginalClass.getInterfaces();
         } catch (ClassNotFoundException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private List<MetricCollector> getMetricCollectors(Object bean, Method method) {
+        return fillMetricInformation(bean).get(method.getName()).stream()
+                .map(metricCollectorsBeanProvider::createCollector)
+                .toList();
+    }
+
+    private List<MetricCollector> callRegisterMetric(List<MetricCollector> metricCollectors) {
+        try {
+            metricCollectors.forEach(MetricCollector::registerMetric);
+            return metricCollectors;
+        } catch (Exception e) {
+            throw new MetricError();
+        }
+    }
+
+    private void callFillMetric(List<MetricCollector> metricCollectors, Object targetResult) {
+        try {
+            metricCollectors.forEach(metricCollector -> {
+                metricCollector.fillMetric(targetResult);
+                metricCollectorsBeanProvider.destroyBean(metricCollector);
+            });
+        } catch (Exception e) {
+            throw new MetricError();
         }
     }
 }
