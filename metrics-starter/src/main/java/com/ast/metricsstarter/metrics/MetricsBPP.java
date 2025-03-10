@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.stereotype.Component;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -92,6 +93,7 @@ public class MetricsBPP implements BeanPostProcessor {
     private Object createCgLibProxy(Object bean) {
         Enhancer enhancer = new Enhancer();
         enhancer.setSuperclass(bean.getClass());
+
         enhancer.setCallback((MethodInterceptor) (obj, method, args, proxy) -> {
             List<MetricCollector> metricCollectors = getMetricCollectors(bean, method);
             Object targetResult;
@@ -110,6 +112,12 @@ public class MetricsBPP implements BeanPostProcessor {
             }
             return targetResult;
         });
+
+
+        Constructor<?>[] declaredConstructors = bean.getClass().getDeclaredConstructors();
+
+        int i = 0;
+
         return enhancer.create();
     }
 

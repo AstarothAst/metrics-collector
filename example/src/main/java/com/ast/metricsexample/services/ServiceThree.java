@@ -11,19 +11,19 @@ import java.util.UUID;
 @Service
 public class ServiceThree {
 
-    @Metrics(FailOnRegister.class)
+    //@Metrics(FailOnRegister.class)
     public UUID doIt1(){
         System.out.println("Все сработало - FailOnRegister");
         return UUID.randomUUID();
     }
 
-    @Metrics(FailOnFill.class)
+    //@Metrics(FailOnFill.class)
     public UUID doIt2(){
         System.out.println("Все сработало - FailOnFill");
         return UUID.randomUUID();
     }
 
-    @Metrics(FailOnBoth.class)
+    //@Metrics(FailOnBoth.class)
     public UUID doIt3(){
         System.out.println("Все сработало - FailOnBoth");
         return UUID.randomUUID();

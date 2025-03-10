@@ -14,7 +14,7 @@ public class Scheduler {
     private final ServiceOne serviceOne;
     private final ServiceTwo serviceTwo;
 
-    @Scheduled(fixedRate = 1000L)
+    //@Scheduled(fixedRate = 1000L)
     public void cron() {
         serviceOne.doit1();
         serviceOne.doit2();
