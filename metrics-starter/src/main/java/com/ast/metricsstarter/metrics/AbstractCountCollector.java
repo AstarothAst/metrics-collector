@@ -5,7 +5,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 
 public abstract class AbstractCountCollector implements MetricCollector {
 
-    private final MeterRegistry registry;
+    protected final MeterRegistry registry;
 
     public AbstractCountCollector(MeterRegistry registry) {
         this.registry = registry;

@@ -3,9 +3,7 @@ package com.ast.metricsexample.metrics;
 import com.ast.metricsstarter.metrics.MetricCollector;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-import org.springframework.stereotype.Component;
 
-@Component
 public class FailOnFill implements MetricCollector {
 
     private final MeterRegistry registry;

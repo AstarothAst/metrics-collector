@@ -1,5 +1,6 @@
 package com.ast.metricsstarter.metrics;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -13,7 +14,6 @@ import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.Arrays;
@@ -21,14 +21,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static java.util.Collections.emptyList;
 
 @Component
+@Slf4j
 public class MetricsBPP implements BeanPostProcessor {
 
+    private final ApplicationContext context;
     private final BeanDefinitionRegistry registry;
     private final MetricCollectorsBeanProvider metricCollectorsBeanProvider;
 
@@ -41,6 +42,7 @@ public class MetricsBPP implements BeanPostProcessor {
     public MetricsBPP(ApplicationContext context,
                       MetricCollectorsBeanProvider metricCollectorsBeanProvider) {
         this.registry = (BeanDefinitionRegistry) context.getAutowireCapableBeanFactory();
+        this.context = context;
         this.metricCollectorsBeanProvider = metricCollectorsBeanProvider;
     }
 
@@ -97,15 +99,14 @@ public class MetricsBPP implements BeanPostProcessor {
         enhancer.setCallback((MethodInterceptor) (obj, method, args, proxy) -> {
             List<MetricCollector> metricCollectors = getMetricCollectors(bean, method);
             Object targetResult;
-            boolean noErrorFlag = true;
+            boolean noErrorFlag = callRegisterMetric(metricCollectors);
 
             try {
-                callRegisterMetric(metricCollectors);
-            } catch (MetricError e) {
-                noErrorFlag = false;
+                targetResult = proxy.invokeSuper(obj, args);
+            } catch (Exception e) {
+                callErrorMetric(metricCollectors, e);
+                throw e;
             }
-
-            targetResult = proxy.invokeSuper(obj, args);
 
             if (noErrorFlag) {
                 callFillMetric(metricCollectors, targetResult);
@@ -113,27 +114,39 @@ public class MetricsBPP implements BeanPostProcessor {
             return targetResult;
         });
 
+        // Получаем конструкторы класса
+        Constructor<?>[] constructors = bean.getClass().getDeclaredConstructors();
+        if (constructors.length == 0) {
+            return enhancer.create();
+        } else {
+            return createCglibProxyWithConstructor(constructors, enhancer);
+        }
+    }
 
-        Constructor<?>[] declaredConstructors = bean.getClass().getDeclaredConstructors();
+    private Object createCglibProxyWithConstructor(Constructor<?>[] constructors, Enhancer enhancer) {
+        Constructor<?> constructor = constructors[0];
+        Class<?>[] paramTypes = constructor.getParameterTypes();
+        Object[] paramValues = new Object[paramTypes.length];
 
-        int i = 0;
-
-        return enhancer.create();
+        for (int i = 0; i < paramTypes.length; i++) {
+            paramValues[i] = context.getBean(paramTypes[i]);
+        }
+        return enhancer.create(paramTypes, paramValues);
     }
 
     private Object createDynamicProxy(Object bean, String beanName) {
         InvocationHandler handler = (proxy, method, args) -> {
             List<MetricCollector> metricCollectors = getMetricCollectors(bean, method);
             Object targetResult;
-            boolean noErrorFlag = true;
+
+            boolean noErrorFlag = callRegisterMetric(metricCollectors);
 
             try {
-                callRegisterMetric(metricCollectors);
-            } catch (MetricError e) {
-                noErrorFlag = false;
+                targetResult = method.invoke(bean, args);
+            } catch (Exception e) {
+                callErrorMetric(metricCollectors, e);
+                throw e;
             }
-
-            targetResult = method.invoke(bean, args);
 
             if (noErrorFlag) {
                 callFillMetric(metricCollectors, targetResult);
@@ -156,28 +169,37 @@ public class MetricsBPP implements BeanPostProcessor {
     }
 
     private List<MetricCollector> getMetricCollectors(Object bean, Method method) {
-        return fillMetricInformation(bean).get(method.getName()).stream()
+        List<Class<? extends MetricCollector>> collectors = fillMetricInformation(bean).getOrDefault(method.getName(), emptyList());
+
+        return collectors.stream()
                 .map(metricCollectorsBeanProvider::createCollector)
                 .toList();
     }
 
-    private List<MetricCollector> callRegisterMetric(List<MetricCollector> metricCollectors) {
+    private boolean callRegisterMetric(List<MetricCollector> metricCollectors) {
         try {
             metricCollectors.forEach(MetricCollector::registerMetric);
-            return metricCollectors;
+            return true;
         } catch (Exception e) {
-            throw new MetricError();
+            return false;
         }
     }
 
+    private void callErrorMetric(List<MetricCollector> metricCollectors, Exception e) {
+        metricCollectors.forEach(metricCollector -> metricCollector.fillError(e));
+    }
+
     private void callFillMetric(List<MetricCollector> metricCollectors, Object targetResult) {
+        metricCollectors.forEach(metricCollector -> fillMetric(targetResult, metricCollector));
+    }
+
+    private void fillMetric(Object targetResult, MetricCollector metricCollector) {
         try {
-            metricCollectors.forEach(metricCollector -> {
-                metricCollector.fillMetric(targetResult);
-                metricCollectorsBeanProvider.destroyBean(metricCollector);
-            });
+            metricCollector.fillMetric(targetResult);
+            metricCollectorsBeanProvider.destroyBean(metricCollector);
         } catch (Exception e) {
-            throw new MetricError();
+            String errorMsg = "Error during collect metric '%s': %s";
+            log.error(errorMsg.formatted(metricCollector.getClass().getName(), e.getLocalizedMessage()));
         }
     }
 }

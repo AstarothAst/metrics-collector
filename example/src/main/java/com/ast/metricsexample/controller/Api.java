@@ -26,21 +26,23 @@ public class Api {
         return "pong";
     }
 
-    @Metrics(FailOnRegister.class)
     @GetMapping("/error1")
     public UUID error1() {
         return serviceThree.doIt1();
     }
 
-    @Metrics(FailOnRegister.class)
     @GetMapping("/error2")
     public UUID error2() {
         return serviceThree.doIt2();
     }
 
-    @Metrics(FailOnRegister.class)
     @GetMapping("/error3")
     public UUID error3() {
         return serviceThree.doIt3();
+    }
+
+    @GetMapping("/error4")
+    public UUID error4() {
+        return serviceThree.doIt4();
     }
 }

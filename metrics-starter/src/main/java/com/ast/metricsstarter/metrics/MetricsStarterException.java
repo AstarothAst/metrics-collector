@@ -1,16 +1,15 @@
 package com.ast.metricsstarter.metrics;
 
+import lombok.Getter;
+
+import static java.util.Objects.nonNull;
+
+@Getter
 public class MetricsStarterException extends RuntimeException {
 
     public MetricsStarterException(Exception e) {
-        super(e);
-    }
-
-    public MetricsStarterException(String error) {
-        super(error);
-    }
-
-    public MetricsStarterException() {
-        super();
+        if (nonNull(e)) {
+            this.setStackTrace(e.getStackTrace());
+        }
     }
 }
