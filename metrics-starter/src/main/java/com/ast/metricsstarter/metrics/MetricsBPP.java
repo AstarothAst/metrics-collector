@@ -1,5 +1,6 @@
 package com.ast.metricsstarter.metrics;
 
+import io.micrometer.observation.Observation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.config.BeanDefinition;
@@ -17,10 +18,13 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static java.util.Collections.emptyList;
@@ -65,6 +69,10 @@ public class MetricsBPP implements BeanPostProcessor {
         }
     }
 
+    private boolean isMetricAnnotationPresent(Method method) {
+        return Optional.ofNullable(AnnotationUtils.findAnnotation(method, Metrics.class)).isPresent();
+    }
+
     private Object createProxy(String beanName) {
         Object bean = beansWithMetricAnnotationMap.get(beanName);
 
@@ -73,23 +81,6 @@ public class MetricsBPP implements BeanPostProcessor {
         } else {
             return createDynamicProxy(bean, beanName);
         }
-    }
-
-    private boolean isMetricAnnotationPresent(Method method) {
-        return Optional.ofNullable(AnnotationUtils.findAnnotation(method, Metrics.class)).isPresent();
-    }
-
-    private Map<String, List<Class<? extends MetricCollector>>> fillMetricInformation(Object bean) {
-        return Arrays.stream(bean.getClass().getDeclaredMethods())
-                .filter(this::isMetricAnnotationPresent)
-                .collect(Collectors.toMap(
-                        Method::getName,
-                        method -> Optional.ofNullable(AnnotationUtils.findAnnotation(method, Metrics.class))
-                                .map(Metrics::value)
-                                .map(List::of)
-                                .orElse(emptyList()),
-                        (metric1, metric2) -> metric1 // при перегрузке методов могут быть дубликаты
-                ));
     }
 
     private Object createCgLibProxy(Object bean) {
@@ -114,7 +105,7 @@ public class MetricsBPP implements BeanPostProcessor {
             return targetResult;
         });
 
-        // Получаем конструкторы класса
+        // В зависимости от наличия конструктора создадим прокси по-разному
         Constructor<?>[] constructors = bean.getClass().getDeclaredConstructors();
         if (constructors.length == 0) {
             return enhancer.create();
@@ -123,8 +114,38 @@ public class MetricsBPP implements BeanPostProcessor {
         }
     }
 
+    private List<MetricCollector> getMetricCollectors(Object bean, Method method) {
+        List<Class<? extends MetricCollector>> collectors = fillMetricInformation(bean).getOrDefault(method.getName(), emptyList());
+
+        return collectors.stream()
+                .map(metricCollectorsBeanProvider::createCollector)
+                .toList();
+    }
+
+    private Map<String, List<Class<? extends MetricCollector>>> fillMetricInformation(Object bean) {
+        return Arrays.stream(bean.getClass().getDeclaredMethods())
+                .filter(this::isMetricAnnotationPresent)
+                .collect(Collectors.toMap(
+                        Method::getName,
+                        method -> Optional.of(AnnotationUtils.findAnnotation(method, Metrics.class))
+                                .map(Metrics::value)
+                                .map(List::of)
+                                .orElse(emptyList()),
+                        (metric1, metric2) -> metric1 // при перегрузке методов могут быть дубликаты
+                ));
+    }
+
+    private boolean callRegisterMetric(List<MetricCollector> metricCollectors) {
+        try {
+            metricCollectors.forEach(MetricCollector::registerMetric);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private Object createCglibProxyWithConstructor(Constructor<?>[] constructors, Enhancer enhancer) {
-        Constructor<?> constructor = constructors[0];
+        Constructor<?> constructor = getConstructorWithMaximumParameters(constructors);
         Class<?>[] paramTypes = constructor.getParameterTypes();
         Object[] paramValues = new Object[paramTypes.length];
 
@@ -132,6 +153,12 @@ public class MetricsBPP implements BeanPostProcessor {
             paramValues[i] = context.getBean(paramTypes[i]);
         }
         return enhancer.create(paramTypes, paramValues);
+    }
+
+    private Constructor<?> getConstructorWithMaximumParameters(Constructor<?>[] constructors) {
+        return Arrays.stream(constructors)
+                .max(Comparator.comparingInt(Constructor::getParameterCount))
+                .orElseThrow(() -> new MetricsStarterException("Suitable constructor not found"));
     }
 
     private Object createDynamicProxy(Object bean, String beanName) {
@@ -158,37 +185,6 @@ public class MetricsBPP implements BeanPostProcessor {
         return Proxy.newProxyInstance(bean.getClass().getClassLoader(), interfaces, handler);
     }
 
-    private Class<?>[] getOriginalClassInterfaces(String beanName) {
-        try {
-            BeanDefinition beanDefinition = registry.getBeanDefinition(beanName);
-            Class<?> beanOriginalClass = Class.forName(beanDefinition.getBeanClassName());
-            return beanOriginalClass.getInterfaces();
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private List<MetricCollector> getMetricCollectors(Object bean, Method method) {
-        List<Class<? extends MetricCollector>> collectors = fillMetricInformation(bean).getOrDefault(method.getName(), emptyList());
-
-        return collectors.stream()
-                .map(metricCollectorsBeanProvider::createCollector)
-                .toList();
-    }
-
-    private boolean callRegisterMetric(List<MetricCollector> metricCollectors) {
-        try {
-            metricCollectors.forEach(MetricCollector::registerMetric);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private void callErrorMetric(List<MetricCollector> metricCollectors, Exception e) {
-        metricCollectors.forEach(metricCollector -> metricCollector.fillError(e));
-    }
-
     private void callFillMetric(List<MetricCollector> metricCollectors, Object targetResult) {
         metricCollectors.forEach(metricCollector -> fillMetric(targetResult, metricCollector));
     }
@@ -201,5 +197,19 @@ public class MetricsBPP implements BeanPostProcessor {
             String errorMsg = "Error during collect metric '%s': %s";
             log.error(errorMsg.formatted(metricCollector.getClass().getName(), e.getLocalizedMessage()));
         }
+    }
+
+    private Class<?>[] getOriginalClassInterfaces(String beanName) {
+        try {
+            BeanDefinition beanDefinition = registry.getBeanDefinition(beanName);
+            Class<?> beanOriginalClass = Class.forName(beanDefinition.getBeanClassName());
+            return beanOriginalClass.getInterfaces();
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void callErrorMetric(List<MetricCollector> metricCollectors, Exception e) {
+        metricCollectors.forEach(metricCollector -> metricCollector.fillError(e));
     }
 }
