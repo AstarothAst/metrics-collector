@@ -12,6 +12,6 @@ public class MetricsStarterConfig {
 
     @PostConstruct
     public void init(){
-        System.out.println("Custom metrics collection system - enabled");
+        log.info("Custom metrics collection system - enabled");
     }
 }

@@ -1,6 +1,5 @@
 package com.ast.metricsstarter.metrics;
 
-import io.micrometer.observation.Observation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.config.BeanDefinition;
@@ -23,8 +22,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Consumer;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static java.util.Collections.emptyList;
@@ -57,6 +54,7 @@ public class MetricsBPP implements BeanPostProcessor {
         if (needCollectMetrics) {
             beansWithMetricAnnotationMap.put(beanName, bean);
         }
+        changeBeanScopeIfNeed(bean, beanName);
         return bean;
     }
 
@@ -71,6 +69,22 @@ public class MetricsBPP implements BeanPostProcessor {
 
     private boolean isMetricAnnotationPresent(Method method) {
         return Optional.ofNullable(AnnotationUtils.findAnnotation(method, Metrics.class)).isPresent();
+    }
+
+    /**
+     * Если бин - это коллектор, и если он Синглтон, то принудительно делаем его Прототипом для потокобезопасности
+     */
+    private void changeBeanScopeIfNeed(Object bean, String beanName) {
+        if (MetricCollector.class.isAssignableFrom(bean.getClass())) {
+            BeanDefinition beanDefinition = registry.getBeanDefinition(beanName);
+
+            if (BeanDefinition.SCOPE_SINGLETON.equals(beanDefinition.getScope())) {
+                String msg = "The bean '%s' implementing interface %s has a scope '%s' - set '%s' forced!"
+                        .formatted(bean.getClass().getName(), MetricCollector.class.getName(), BeanDefinition.SCOPE_SINGLETON, BeanDefinition.SCOPE_PROTOTYPE);
+                log.warn(msg);
+                beanDefinition.setScope(BeanDefinition.SCOPE_PROTOTYPE);
+            }
+        }
     }
 
     private Object createProxy(String beanName) {
