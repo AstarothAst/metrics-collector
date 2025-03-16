@@ -43,7 +43,7 @@ public class MetricCollectorsBeanProvider {
                     return msg.formatted(classes, metricName);
                 }).toList();
 
-        if(!duplicateMetrics.isEmpty()){
+        if (!duplicateMetrics.isEmpty()) {
             String errorMsg = String.join("; ", duplicateMetrics);
             log.error(errorMsg);
             throw new MetricsStarterException(errorMsg);

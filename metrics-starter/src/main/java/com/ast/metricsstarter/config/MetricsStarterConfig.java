@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 public class MetricsStarterConfig {
 
     @PostConstruct
-    public void init(){
+    public void init() {
         log.info("Custom metrics collection system - enabled");
     }
 }
